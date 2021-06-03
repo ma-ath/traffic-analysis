@@ -16,6 +16,8 @@ import scipy.io.wavfile
 import re
 from imutils import paths
 import math
+import json
+from tqdm import tqdm
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 from TrafficSoundAnalysis.utils.utils import *
@@ -904,6 +906,616 @@ class DataHandler:
             gc.collect()
 
             return X_train, Y_train, X_test, Y_test
+
+    #   Experimental functions used for generating and loading some specific faster rcnn feature tensors.
+    #   They are not meant to be general, and were written to work with a specific set of data
+    #   Included here just for documentation and provided as is
+    #   Refer to https://www.monografias.poli.ufrj.br/monografias/monopoli10032736.pdf, page 36
+    #   ---------------------------------------------------------------------------------------
+    def EXPERIMENTAL_LoadFasterRCNNExtractedFeaturesFromDiskForAuxiliaryInput(self, fold, input_type, LSTM, time_steps, causal_prediction, stateful, batch_size):
+        """
+            This function only work for overlap_windows = True.
+            I did not bother writting the other cases because i'll did not use
+            It loads the faster rcnn feature extracted by Pedro Cayres as tensors
+
+            input_type = "count" or "onehot"
+        """
+
+        if causal_prediction:
+            target_size = 0     # If causal, we want to predict the audio volume at the last image of the batch
+        else:
+            target_size = int((time_steps-1)/2)  # If non causal, we want to predict the volume at the center of the batch
+
+        stack_train = []
+        for video_name in fold["training_videos"]:
+            video_name = video_name.replace(".MPG", ".json")
+            video_file = np.load(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FRCNN,video_name+"_"+input_type+".npy"))
+
+            if LSTM:
+                video_size = video_file.shape[0]
+                video_file = video_file[time_steps-target_size:video_size-target_size]
+
+            stack_train.append(video_file)
+        aux_X_train = np.array(stack_train[0])
+        del stack_train[0]
+        for video in stack_train:
+            video = np.array(video).astype("float32")
+            aux_X_train = np.vstack((aux_X_train, video))
+
+        stack_test = []
+        for video_name in fold["testing_videos"]:
+            video_name = video_name.replace(".MPG", ".json")
+            video_file = np.load(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FRCNN, video_name+"_"+input_type+".npy"))
+
+            if LSTM:
+                video_size = video_file.shape[0]
+                video_file = video_file[time_steps-target_size:video_size-target_size]
+
+            stack_test.append(video_file)
+        aux_X_test = np.array(stack_test[0])
+        del stack_test[0]
+        for video in stack_test:
+            video = np.array(video).astype("float32")
+            aux_X_test = np.vstack((aux_X_test, video))
+
+        """
+        On stateful LSTM networks, you have to pass the input_size (including the batch_size)
+        to the network when declaring it (throughout the batch_input_shape argument)
+
+        Therefore, lenght of the dataset has to me a multiple of batch_size.
+        We do that by deleting sufficient data;
+        """
+
+        if stateful:
+            while aux_X_train.shape[0] % batch_size != 0:
+                aux_X_train = np.delete(aux_X_train, 1, axis=0)
+            while aux_X_test.shape[0] % batch_size != 0:
+                aux_X_test = np.delete(aux_X_test, 1, axis=0)
+        
+        return aux_X_train, aux_X_test
+
+    def EXPERIMENTAL_ExtractFasterRCNNJSONFeaturesToCountingTensors(self):
+        def JSONFeaturesToCountingTensor(json_list, MIN_SCORE=0.5, BLOCK_LIST = []):
+            """
+            Transform the JSON files extracted by Pedro Cayres in a 'counting tensor'
+            """
+            def category_counter_to_vector(category_counter):
+                vector = [0]*len(category_counter)
+
+                i = 0
+                for key, value in category_counter.items():
+                    vector[i] = value
+                    i += 1
+
+                vector = np.array(vector)
+                return vector
+
+            print("Loading JSONs from json_list...")
+            features = [None]*len(json_list)
+            i = 0
+            for json_name in json_list:
+                with open(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FRCNN, json_name), "r") as fp:
+                    features[i] = json.load(fp)
+                    i += 1
+
+            #   --------- Remoção de baixos score ---------
+            #   Remove all features with score less than MIN_SCORE
+            j = 0
+            for feature in features:
+                print("Processing JSON", json_list[j])
+                print("JSON has size:", len(feature))
+                print("Removing features with score less than", MIN_SCORE)
+                i = 0
+                pbar = tqdm(total=len(feature))
+                while i < len(feature):
+                    if feature[i]['score'] < MIN_SCORE or feature[i]['category'] in BLOCK_LIST:
+                        del feature[i]
+                        i -= 1
+                    i += 1
+                    pbar.update()
+                pbar.close()
+                print("JSON has now size:", len(feature))
+                j += 1
+            #   --------- Label generation ---------
+
+            category_list = []
+
+            print("Looking for all categories")
+            for feature in features:
+                i = 0
+                while i < len(feature):
+                    unknown_category = feature[i]['category'] not in category_list
+                    if unknown_category:
+                        print("Found an unknown category:", feature[i]['category'])
+                        category_list.append(feature[i]['category'])
+                    i += 1
+            print("All categories were processed")
+
+            category_counter = {}
+
+            for category in category_list:
+                category_counter[category] = 0
+
+            #   --------- Checar   ---------
+            video_number = [1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            7,
+                            8,
+                            12,
+                            14,
+                            15,
+                            16,
+                            17,
+                            18,
+                            19,
+                            22,
+                            23,
+                            24,
+                            25,
+                            26,
+                            27,
+                            29,
+                            30,
+                            31,
+                            32,
+                            33,
+                            35,
+                            36,
+                            37,
+                            39,
+                            41,
+                            42,
+                            43,
+                            45,
+                            46,
+                            47,
+                            48,
+                            50
+            ]
+
+            for i in range(len(json_list)):
+                print(json_list[i])
+
+                with open(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FRCNN, "nmb_of_frames_"+str(video_number[i])), "rb") as fp:
+                    nmb_of_frames = pickle.load(fp)
+                
+                frame_now = 0
+                for j in range(len(features[i])):
+                    if int(features[i][j]['frame']) != frame_now:
+                        if int(features[i][j]['frame']) == frame_now+1:
+                            frame_now += 1
+                        else:
+                            # print("frame_now", frame_now, "features[i][j]['frame']", features[i][j]['frame'])
+                            frame_now = int(features[i][j]['frame'])
+                print("Last frame:", features[i][len(features[i])-1]['frame'])
+                print("nmb_of_frames:", nmb_of_frames-1)
+
+            #   --------- Counting ---------
+            for feature in features:
+                i = 0
+                while i < len(feature):
+                    category_counter[feature[i]['category']] += 1
+                    i += 1
+
+            #   Order by counter
+            category_counter = {k: v for k, v in sorted(category_counter.items(), key=lambda item: item[1], reverse=True)}
+
+            print("Total number of apearences per category:")
+            for key, value in category_counter.items():
+                print(key, ":", value)
+
+            #   Cria e preenche o vetor numpy de saida.
+            #   o vetor de saída é da seguinte forma: [Frame,categoria,numero_de_repeticoes]
+            #   Número de frames é o ultimo frame da ultima feature
+
+            output_tensor = [None]*len(features)
+            cont = 0
+            for feature in features:
+                with open(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FRCNN, "nmb_of_frames_"+str(video_number[cont])), "rb") as fp:
+                    number_of_frames = pickle.load(fp)
+                # number_of_frames = feature[len(feature)-1]['frame'] + 1
+
+                print("Total number of frames:", number_of_frames)
+                number_of_categories = len(category_list)
+                print("Total number of categories:", number_of_categories)
+
+                output_tensor[cont] = np.zeros(
+                                    shape=(number_of_frames, number_of_categories)
+                                    )
+
+                print("Output tensor shape:", output_tensor[cont].shape)
+
+                pbar = tqdm(total=len(feature))
+
+                frame_counter = 0
+                index = 0
+                category_counter = {}
+
+                for category in category_list:
+                    category_counter[category] = 0
+
+                while frame_counter <= number_of_frames and index < len(feature):
+                    if feature[index]['frame'] == frame_counter:
+                        #   Count number of apearences of this categorie
+                        #   --------- Counting ---------
+                        category_counter[feature[index]['category']] += 1
+                        index += 1
+                        pbar.update()
+                    else:
+                        feat = category_counter_to_vector(category_counter)
+                        
+                        output_tensor[cont][frame_counter] = feat
+
+                        frame_counter += 1              #   Next frame
+                        for category in category_list:  #   category_counter = 0
+                            category_counter[category] = 0
+                pbar.close()
+                cont += 1
+            return output_tensor
+
+        json_list = [
+            'M2U00001.json',
+            'M2U00002.json',
+            'M2U00003.json',
+            'M2U00004.json',
+            'M2U00005.json',
+            'M2U00006.json',
+            'M2U00007.json',
+            'M2U00008.json',
+            'M2U00012.json',
+            'M2U00014.json',
+            "M2U00015.json",
+            "M2U00016.json",
+            "M2U00017.json",
+            "M2U00018.json",
+            "M2U00019.json",
+            "M2U00022.json",
+            "M2U00023.json",
+            "M2U00024.json",
+            "M2U00025.json",
+            "M2U00026.json",
+            "M2U00027.json",
+            "M2U00029.json",
+            "M2U00030.json",
+            "M2U00031.json",
+            "M2U00032.json",
+            "M2U00033.json",
+            "M2U00035.json",
+            "M2U00036.json",
+            "M2U00037.json",
+            "M2U00039.json",
+            "M2U00041.json",
+            "M2U00042.json",
+            "M2U00043.json",
+            "M2U00045.json",
+            "M2U00046.json",
+            "M2U00047.json",
+            "M2U00048.json",
+            "M2U00050.json"
+        ]
+
+        block_list = [
+            'suitcase',
+            'boat',
+            'tennis racket',
+            'tv',
+            'baseball glove',
+            'backpack',
+            'chair',
+            'bird',
+            'dog',
+            'bench',
+            'cell phone',
+            'skateboard',
+            'potted plant',
+            'vase',
+            'sports ball',
+            'bottle',
+            'cup',
+            'wine glass',
+            'frisbee',
+            'skis',
+            'sink',
+            'remote',
+            'umbrella',
+            'fire hydrant',
+            'train',
+            'broccoli',
+            'donut',
+            'teddy bear',
+            'airplane',
+            'bowl',
+            'book',
+            'cat',
+            'handbag',
+            'zebra',
+            'baseball bat',
+            'snowboard',
+            'banana',
+            'horse',
+            'stop sign',
+            'clock',
+            'elephant',
+            'cow',
+            'parking meter',
+            'traffic light',
+            'toilet',
+            'fork',
+            'kite',
+            'giraffe',
+            'tie'
+        ]
+
+        tensors = JSONFeaturesToCountingTensor(json_list=json_list, MIN_SCORE=0.70, BLOCK_LIST=block_list)
+        for i in range(len(tensors)):
+            print_info("Saving counting tensors to disco")
+            np.save(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FRCNN, json_list[i]+"_count"), tensors[i])
+            sparsity = 1.0 - np.count_nonzero(tensors[i]) / tensors[i].size
+            print_info(json_list[i]+" Sparsity: "+str(sparsity))
+
+    def EXPERIMENTAL_ExtractFasterRCNNJSONFeaturesToOneHotTensors(self):
+        def JSONFeaturesToOneHotTensors(json_list, MIN_SCORE=0.5, FEATURES_PER_FRAME=10, BLOCK_LIST = []):
+            def category_to_vector(category, labels):
+                vector = np.zeros(shape=(len(labels)))
+                place = [i for i, x in enumerate(labels) if x == category]
+                vector[place[0]] = 1
+                return vector
+
+            print_info("Loading JSONs from json_list...")
+            features = [None]*len(json_list)
+            i = 0
+            for json_name in json_list:
+                with open(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FRCNN, json_name), "r") as fp:
+                    features[i] = json.load(fp)
+                    i += 1
+
+            #   --------- Remoção de baixos score ---------
+            #   Remove all features with score less than MIN_SCORE
+            j = 0
+            for feature in features:
+                print("Processing JSON", json_list[j])
+                print("JSON has size:", len(feature))
+                print("Removing features with score less than", MIN_SCORE)
+                i = 0
+                pbar = tqdm(total=len(feature))
+                while i < len(feature):
+                    if feature[i]['score'] < MIN_SCORE or feature[i]['category'] in BLOCK_LIST:
+                        del feature[i]
+                        i -= 1
+                    i += 1
+                    pbar.update()
+                pbar.close()
+                print("JSON has now size:", len(feature))
+                j += 1
+            #   --------- Label generation ---------
+
+            category_list = []
+
+            print("Looking for all categories")
+            for feature in features:
+                i = 0
+                while i < len(feature):
+                    unknown_category = feature[i]['category'] not in category_list
+                    if unknown_category:
+                        print("Found an unknown category:", feature[i]['category'])
+                        category_list.append(feature[i]['category'])
+                    i += 1
+            print("All categories were processed")
+            for category in category_list:
+                print(category)
+
+            #   --------- Checar   ---------
+            video_number = [1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            7,
+                            8,
+                            12,
+                            14,
+                            15,
+                            16,
+                            17,
+                            18,
+                            19,
+                            22,
+                            23,
+                            24,
+                            25,
+                            26,
+                            27,
+                            29,
+                            30,
+                            31,
+                            32,
+                            33,
+                            35,
+                            36,
+                            37,
+                            39,
+                            41,
+                            42,
+                            43,
+                            45,
+                            46,
+                            47,
+                            48,
+                            50
+            ]
+
+            for i in range(len(json_list)):
+                print(json_list[i])
+
+                with open(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FRCNN, "nmb_of_frames_"+str(video_number[i])), "rb") as fp:
+                    nmb_of_frames = pickle.load(fp)
+                
+                frame_now = 0
+                for j in range(len(features[i])):
+                    if int(features[i][j]['frame']) != frame_now:
+                        if int(features[i][j]['frame']) == frame_now+1:
+                            frame_now += 1
+                        else:
+                            # print("frame_now", frame_now, "features[i][j]['frame']", features[i][j]['frame'])
+                            frame_now = int(features[i][j]['frame'])
+                print("Ultimo frame:", features[i][len(features[i])-1]['frame'])
+                print("nmb_of_frames:", nmb_of_frames-1)
+
+            #   Cria e preenche o vetor numpy de saida.
+            #   o vetor de saída é da seguinte forma: [Frame,nº de caracteristicas,caracteristicas(onehot+score+size)]
+            #   Número de frames é o ultimo frame da ultima feature
+
+            output_tensor = [None]*len(features)
+            cont = 0
+            for feature in features:
+                with open(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FRCNN, "nmb_of_frames_"+str(video_number[cont])), "rb") as fp:
+                    number_of_frames = pickle.load(fp)
+                # number_of_frames = feature[len(feature)-1]['frame']+1
+                print("Número total de frames:", number_of_frames)
+                number_of_categories = len(category_list)
+                print("Número total de categorias:", number_of_categories)
+
+                output_tensor[cont] = np.zeros(
+                                    shape=(number_of_frames, FEATURES_PER_FRAME, number_of_categories+2)
+                                    )
+
+                print("Output tensor shape:", output_tensor[cont].shape)
+
+                pbar = tqdm(total=len(feature))
+
+                frame_counter = 0
+                feature_counter = 0
+                index = 0
+                while frame_counter < number_of_frames and index < len(feature):
+                    if feature[index]['frame'] == frame_counter:
+                        if feature_counter < FEATURES_PER_FRAME:
+                            one_hot = category_to_vector(feature[index]['category'], category_list)
+                
+                            size = (feature[index]['bbox'][0]-feature[index]['bbox'][1])*(feature[index]['bbox'][2]-feature[index]['bbox'][3])
+                            size = math.sqrt(abs(size))
+                            feat =  np.array([feature[index]['score'], size])
+
+                            feature_concat = np.concatenate((feat, one_hot))
+                        
+                            output_tensor[cont][frame_counter][feature_counter] = feature_concat
+
+                            feature_counter += 1
+                        index += 1
+                        pbar.update()
+                    else:
+                        frame_counter += 1
+                        feature_counter = 0
+                pbar.close()
+                cont += 1
+
+            return output_tensor
+
+        json_list = [
+            'M2U00001.json',
+            'M2U00002.json',
+            'M2U00003.json',
+            'M2U00004.json',
+            'M2U00005.json',
+            'M2U00006.json',
+            'M2U00007.json',
+            'M2U00008.json',
+            'M2U00012.json',
+            'M2U00014.json',
+            "M2U00015.json",
+            "M2U00016.json",
+            "M2U00017.json",
+            "M2U00018.json",
+            "M2U00019.json",
+            "M2U00022.json",
+            "M2U00023.json",
+            "M2U00024.json",
+            "M2U00025.json",
+            "M2U00026.json",
+            "M2U00027.json",
+            "M2U00029.json",
+            "M2U00030.json",
+            "M2U00031.json",
+            "M2U00032.json",
+            "M2U00033.json",
+            "M2U00035.json",
+            "M2U00036.json",
+            "M2U00037.json",
+            "M2U00039.json",
+            "M2U00041.json",
+            "M2U00042.json",
+            "M2U00043.json",
+            "M2U00045.json",
+            "M2U00046.json",
+            "M2U00047.json",
+            "M2U00048.json",
+            "M2U00050.json"
+        ]
+
+        block_list = [
+            'suitcase',
+            'boat',
+            'tennis racket',
+            'tv',
+            'baseball glove',
+            'backpack',
+            'chair',
+            'bird',
+            'dog',
+            'bench',
+            'cell phone',
+            'skateboard',
+            'potted plant',
+            'vase',
+            'sports ball',
+            'bottle',
+            'cup',
+            'wine glass',
+            'frisbee',
+            'skis',
+            'sink',
+            'remote',
+            'umbrella',
+            'fire hydrant',
+            'train',
+            'broccoli',
+            'donut',
+            'teddy bear',
+            'airplane',
+            'bowl',
+            'book',
+            'cat',
+            'handbag',
+            'zebra',
+            'baseball bat',
+            'snowboard',
+            'banana',
+            'horse',
+            'stop sign',
+            'clock',
+            'elephant',
+            'cow',
+            'parking meter',
+            'traffic light',
+            'toilet',
+            'fork',
+            'kite',
+            'giraffe',
+            'tie'
+        ]
+
+        tensors = JSONFeaturesToOneHotTensors(json_list=json_list, FEATURES_PER_FRAME=20, MIN_SCORE=0.7, BLOCK_LIST=block_list)
+        for i in range(len(tensors)):
+            print("Salvando tensor no disco")
+            np.save(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FRCNN, json_list[i]+"_onehot"), tensors[i])
+            sparsity = 1.0 - np.count_nonzero(tensors[i]) / tensors[i].size
+            print(json_list[i], "sparsity:", sparsity)
+
+    #   Private methods ------------------------------------------------------------------------------
 
     def __CheckIfPathExists(self, path):
         return os.path.exists(path)

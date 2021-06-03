@@ -3,35 +3,39 @@
     Python dictionaries with all training and testing folds
     Each entry has the name of training and testing videos
 """
-number_of_folds = 2
+number_of_folds = 3
 folds = [dict() for i in range(number_of_folds)]
 
 for i in range(number_of_folds):
     folds[i]["name"] = "fold_"+str(i)
     folds[i]["number"] = i
 
+# Fold 0
 folds[0]["training_videos"] = [
-    "road.mp4",
-    "road2.mp4",
-    "road3.mp4"
+    "BuzzingMalaysianRoadTraffic.mp4",
+    "Objectdetectionusingdeeplearningdatasetcctvroadvideo.mp4"
 ]
-
 folds[0]["testing_videos"] = [
-    "road4.mp4",
-    "road5.mp4",
-    "road6.mp4"
+    "Relaxinghighwaytraffic.mp4"
 ]
 
+# Fold 1
 folds[1]["training_videos"] = [
-    "road2.mp4",
-    "road3.mp4",
-    "road4.mp4"
+    "BuzzingMalaysianRoadTraffic.mp4",
+    "Relaxinghighwaytraffic.mp4"
+
+]
+folds[1]["testing_videos"] = [
+    "Objectdetectionusingdeeplearningdatasetcctvroadvideo.mp4"
 ]
 
-folds[1]["testing_videos"] = [
-    "road5.mp4",
-    "road6.mp4",
-    "road.mp4"
+# Fold 2
+folds[2]["training_videos"] = [
+    "Relaxinghighwaytraffic.mp4",
+    "Objectdetectionusingdeeplearningdatasetcctvroadvideo.mp4"
+]
+folds[2]["testing_videos"] = [
+    "BuzzingMalaysianRoadTraffic.mp4"
 ]
 
 if __name__ == "__main__":

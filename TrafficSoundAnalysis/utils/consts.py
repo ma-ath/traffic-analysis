@@ -38,7 +38,7 @@ CONST_STR_RESULTS_BASEPATH = "results"
 #   -----------------------------------------------
 #   Constants related to network structure
 
-CONST_VEC_NETWORK_VGG16_OUTPUTSHAPE = (2, 2, 512)
+CONST_VEC_NETWORK_VGG16_OUTPUTSHAPE = (7, 7, 512)
 CONST_VEC_NETWORK_INCEPTIONV3_OUTPUTSHAPE = (5, 5, 2048)
 CONST_VEC_NETWORK_RESNET50_OUTPUTSHAPE = (7, 7, 2048)
 
