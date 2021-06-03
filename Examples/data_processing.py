@@ -28,7 +28,7 @@ if not os.path.isdir(os.path.join(test_dataset, "raw")):
 dataHandler = DataHandler(dataset_directory = test_dataset)
 
 #   Uses a datascraper to extract all data
-dataHandler.ExtractData(downsampling_factor=500, image_format = [224, 224, 3])
+dataHandler.ExtractData(downsampling_factor=500, image_format = [75, 75, 3])
 
 #   Loads data from one fold
 [
@@ -45,3 +45,5 @@ dataHandler.ExtractData(downsampling_factor=500, image_format = [224, 224, 3])
 from folds import *
 
 dataHandler.SaveFoldsToDisk(folds)
+
+dataHandler.ExtractImageFeaturesFromFolds(folds, image_format = [75, 75, 3], cnn='inceptionv3', pooling='gap')

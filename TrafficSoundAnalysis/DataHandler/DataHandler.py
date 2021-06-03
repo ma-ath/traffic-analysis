@@ -16,8 +16,8 @@ import scipy.io.wavfile
 import re
 from imutils import paths
 import math
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 from TrafficSoundAnalysis.utils.utils import *
 from TrafficSoundAnalysis.utils.consts import *
 
@@ -28,6 +28,7 @@ class DataHandler:
     """
 
     __dataset_directory = ""
+    __image_format = [224,224,3]
 
     def __init__(self, dataset_directory = CONST_STR_DATASET_BASEPATH):
         if type(dataset_directory) != str:
@@ -551,6 +552,111 @@ class DataHandler:
             del test_number_of_frames
             gc.collect()
         print_info("All folds are saved on the disk")
+
+    def ExtractImageFeaturesFromFolds(self, folds, cnn = 'vgg16', pooling = "None", image_format = __image_format):
+        """
+        Method that extract image features from the processed dataset.
+        pooling = "None", "GAP" or "GMP"
+        cnn = 'vgg16', 'inceptionV3' or 'ResNet50'
+        """
+        #   Deep learning backend
+        import tensorflow as tf
+        #os.environ['CUDA_VISIBLE_DEVICES'] = "0"
+        #physical_devices = tf.config.experimental.list_physical_devices('GPU')
+        #if len(physical_devices) > 0:
+        #    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+
+
+
+        self.__image_format = image_format
+
+        #   ------------------  Create extracting model
+        input_format = (self.__image_format[0], self.__image_format[1], self.__image_format[2])
+        inputs = tf.keras.layers.Input(input_format)
+
+        #   ------------------  Convolution  ------------------
+        #   As of now python does not offer a switch-case statement
+        if cnn.lower() == "vgg16":
+            convolutional_layer = tf.keras.applications.VGG16(weights='imagenet', include_top=False, input_shape=input_format)
+            for layer in convolutional_layer.layers[:]:
+                layer.trainable = False     #Freezes all layers in the vgg16
+        if cnn.lower() == "inceptionv3":
+            convolutional_layer = tf.keras.applications.InceptionV3(weights='imagenet', include_top=False, input_shape=input_format)
+            for layer in convolutional_layer.layers[:]:
+                layer.trainable = False     #Freezes all layers in the inceptionv3
+        if cnn.lower() == "resnet50":
+            convolutional_layer = tf.keras.applications.ResNet50(weights='imagenet', include_top=False, input_shape=input_format)
+            for layer in convolutional_layer.layers[:]:
+                layer.trainable = False     #Freezes all layers in the resnet50
+
+        output_shape = convolutional_layer.output_shape
+        convolution_output = convolutional_layer(inputs)
+        #   ------------------  Pooling  ------------------
+        if pooling.lower() == "none":
+            outputs = convolution_output
+        elif pooling.lower() == "gap":
+            outputs = tf.keras.layers.GlobalAveragePooling2D(data_format=None)(convolution_output)
+        elif pooling.lower() == "gmp":
+            outputs = tf.keras.layers.GlobalMaxPooling2D(data_format=None)(convolution_output)
+
+        model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        print_info("Extraction network summary:")
+        model.summary()
+
+        #   Create folder to host all extracted models
+        if (cnn.lower() == "vgg16"):
+            extraction_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_VGG16)
+        if (cnn.lower() == "inceptionv3"):
+            extraction_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_INCEPTIONV3)
+        if (cnn.lower() == "resnet50"):
+            extraction_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_RESNET50)
+
+        try:
+            if not self.__CheckIfPathExists(extraction_datapath):
+                os.makedirs(extraction_datapath)
+        except:
+            print_error("Could not make directory for features extraction")
+            raise Exception("Could not make directory for features extraction")
+
+        for fold in folds:
+            #   Load fold dataset
+            print_info("Loading dataset from "+fold["name"])
+
+            try:
+                input_train_data = np.load(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, fold['name']+"_train_input_data"+".npy"))
+                input_test_data = np.load(os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, fold['name']+"_test_input_data"+".npy"))
+            except:
+                print_error("Could not find dataset. Did you build it?")
+                raise Exception("Could not find dataset. Did you build it?")
+            
+            #   Extracting features of fold
+            print_info("Extracting training features")
+
+            train_features = model.predict(input_train_data)
+
+            #Save the extracted features
+            print_info("Saving training features")
+            np.save(os.path.join(extraction_datapath, fold["name"]+"_train_input_data_"+pooling), train_features)
+
+            #   Forcefully delete input datas from memory
+            del input_train_data
+            del train_features
+            gc.collect()
+
+            ###   Repeat to test dataset
+            print_info("Extracting testing features")
+
+            test_features = model.predict(input_test_data)
+
+            #Save the extracted features
+            print_info("Saving testing features")
+            np.save(os.path.join(extraction_datapath, fold["name"]+"_test_input_data_"+pooling), test_features)
+
+            #   Forcefully delete input datas from memory
+            del input_test_data
+            del test_features
+            gc.collect()
+        pass
 
     def __CheckIfPathExists(self, path):
         return os.path.exists(path)
