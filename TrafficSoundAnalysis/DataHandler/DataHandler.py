@@ -46,7 +46,7 @@ class DataHandler:
             raise Exception("Cound not find the dataset raw folder")
         pass
 
-    def ExtractData(self, downsampling_factor, image_format, video = None, dont_extract_soundtargets = False):
+    def ExtractDataFromRawVideos(self, downsampling_factor, image_format, video = None, dont_extract_soundtargets = False):
         """
         Method that extract images in a given directory
         ---------------------------
@@ -277,7 +277,7 @@ class DataHandler:
 
         pass
 
-    def LoadData(self, train_videos, test_videos):
+    def CreateFoldFromExtractedData(self, train_videos, test_videos):
         """
         Function that returns the input and output data of stacked videos (a fold).
         ---------------------------
@@ -496,7 +496,7 @@ class DataHandler:
         
         return input_train_data, output_train_data, input_test_data, output_test_data, train_number_of_frames, test_number_of_frames
 
-    def SaveFoldsToDisk(self, folds):
+    def CreateAndSaveFoldsToDisk(self, folds):
         """
         A function that automatically saves all folds to disk.
         expects a list of python dictonaries, as the following example:
@@ -531,17 +531,17 @@ class DataHandler:
                 output_test_data,
                 train_number_of_frames,
                 test_number_of_frames
-            ] = self.LoadData(fold["training_videos"], fold["testing_videos"])
+            ] = self.CreateFoldFromExtractedData(fold["training_videos"], fold["testing_videos"])
 
             #   Save this dataset to the corresponding fold path
             print_info("Saving fold "+str(fold['number'])+" to disk")
 
-            np.save(os.path.join(fold_path, fold['name']+"_train_input_data"), input_train_data)
-            np.save(os.path.join(fold_path, fold['name']+"_train_output_data"), output_train_data)
-            np.save(os.path.join(fold_path, fold['name']+"_test_input_data"), input_test_data)
-            np.save(os.path.join(fold_path, fold['name']+"_test_output_data"), output_test_data)
-            np.save(os.path.join(fold_path, fold['name']+"_train_numberofframes"), train_number_of_frames)
-            np.save(os.path.join(fold_path, fold['name']+"_test_numberofframes"), test_number_of_frames)
+            np.save(os.path.join(fold_path, fold['name'].lower()+"_train_input_data"), input_train_data)
+            np.save(os.path.join(fold_path, fold['name'].lower()+"_train_output_data"), output_train_data)
+            np.save(os.path.join(fold_path, fold['name'].lower()+"_test_input_data"), input_test_data)
+            np.save(os.path.join(fold_path, fold['name'].lower()+"_test_output_data"), output_test_data)
+            np.save(os.path.join(fold_path, fold['name'].lower()+"_train_numberofframes"), train_number_of_frames)
+            np.save(os.path.join(fold_path, fold['name'].lower()+"_test_numberofframes"), test_number_of_frames)
 
             #   Forcefully collect all garbage in memory 
             del input_train_data
@@ -553,7 +553,7 @@ class DataHandler:
             gc.collect()
         print_info("All folds are saved on the disk")
 
-    def ExtractImageFeaturesFromFolds(self, folds, cnn = 'vgg16', pooling = "None", image_format = __image_format):
+    def ExtractImageFeaturesFromFoldsOnDisk(self, folds, cnn = 'vgg16', pooling = "none", image_format = __image_format):
         """
         Method that extract image features from the processed dataset.
         pooling = "None", "GAP" or "GMP"
@@ -636,7 +636,7 @@ class DataHandler:
 
             #Save the extracted features
             print_info("Saving training features")
-            np.save(os.path.join(extraction_datapath, fold["name"]+"_train_input_data_"+pooling), train_features)
+            np.save(os.path.join(extraction_datapath, fold["name"].lower()+"_train_input_data_"+pooling.lower()), train_features)
 
             #   Forcefully delete input datas from memory
             del input_train_data
@@ -650,13 +650,260 @@ class DataHandler:
 
             #Save the extracted features
             print_info("Saving testing features")
-            np.save(os.path.join(extraction_datapath, fold["name"]+"_test_input_data_"+pooling), test_features)
+            np.save(os.path.join(extraction_datapath, fold["name"].lower()+"_test_input_data_"+pooling.lower()), test_features)
 
             #   Forcefully delete input datas from memory
             del input_test_data
             del test_features
             gc.collect()
         pass
+
+    def LoadDatasetFromFoldOnDisk(self,
+                                Fold_name,
+                                CNN="vgg16",
+                                Pooling="gap",
+                                LSTM=True,
+                                time_steps=3,
+                                overlap_windows=True,
+                                causal_prediction=True,
+                                stateful=False,
+                                batch_size=32,
+                                image_format = __image_format):
+        """
+        Function that loads a fold dataset from disk for the training process, using any struture
+
+        Fold_name:          From which fold should the function load the dataset
+        CNN, Pooling:       Which features should the function use to create the dataset
+        LSTM:               If the dataset loaded is being used in a lstm network
+        time_steps:         How many frame inputs are there in one window of the LSTM
+        overlap_windows:    If the window move "one-by-one", or "time_steps-by-time_steps"
+        causal_prediction:  If the predicted audio sample is in the middle of the window (non-causal), or at the end of the window (causal)
+        stateful:           In case of a LSTM stateful network, dataset size has to be a multiple of batch_size. We do that by deleting some information
+        batch_size:         Batch size used on fitting process
+        """
+
+        self.__image_format = image_format
+
+        #   Check if the desired image features have been previously extracted or not. Try loading the processed dataset from file:
+        #   Sets the dataset_datapath variable for the root of the desired data location
+        if (CNN.lower() == "vgg16"):
+            dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_VGG16)
+        elif (CNN.lower() == "inceptionv3"):
+            dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_INCEPTIONV3)
+        elif (CNN.lower() == "resnet50"):
+            dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_RESNET50)
+        elif (CNN.lower() == "none"):
+            print_warning("You are loading a non-pre-extracted dataset. Usually this leads to a high usage of RAM memory.")
+            dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS)
+        else:
+            print_error("The desired CNN model is still not suported for dataset loading")
+            raise Exception("The desired CNN model is still not suported for dataset loading")
+
+        #   Try loading the fold dataset (features or full images tensors)
+        if not (CNN.lower() == "none"):
+            #   Loads only the image features
+            training_images_filename = os.path.join(dataset_datapath, Fold_name.lower()+"_train_input_data_"+Pooling.lower()+".npy")
+            testing_images_filename = os.path.join(dataset_datapath, Fold_name.lower()+"_test_input_data_"+Pooling.lower()+".npy")
+            training_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_train_output_data.npy")
+            testing_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_test_output_data.npy")
+        else:
+            #   Loads the full image tensors
+            training_images_filename = os.path.join(dataset_datapath,Fold_name.lower()+"_train_input_data.npy")
+            testing_images_filename = os.path.join(dataset_datapath,Fold_name.lower()+"_test_input_data.npy")
+            training_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_train_output_data.npy")
+            testing_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_test_output_data.npy")
+
+        number_of_frames_train_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_train_numberofframes.npy")
+        number_of_frames_test_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_test_numberofframes.npy")
+
+        try:
+            training_images = np.load(training_images_filename)
+            testing_images = np.load(testing_images_filename)
+            training_labels = np.load(training_labels_filename)
+            testing_labels = np.load(testing_labels_filename)
+        except:
+            print_error("Could not find one or more of the following fold files. Did you create the fold / extracted the tensor features?")
+            print("\t"+training_images_filename)
+            print("\t"+testing_images_filename)
+            print("\t"+training_labels_filename)
+            print("\t"+testing_labels_filename)
+            raise Exception("Could not find one or more of the following fold files. Did you create the fold / extracted the tensor features?")
+
+        try:
+            training_nof = np.load(number_of_frames_train_filename)
+            testing_nof = np.load(number_of_frames_test_filename)
+        except:
+            print_error("Could not open one or more of the following files:")
+            print("\t"+number_of_frames_train_filename)
+            print("\t"+number_of_frames_test_filename)
+            Exception("Error when trying to load the number_of_frames files")
+
+        #   If not using a LSTM network, loading dataset from file is all we need to do
+        if not LSTM:
+            print_info("Dataset loaded sucessefully")
+            return training_images, training_labels, testing_images, testing_labels
+
+        if overlap_windows == False:
+            #   We rarelly will use overlap_windows = False, but here is the code
+            #
+            #   When not overlaying windows, all we need to do is reshape da dataset. Do do that, the number of
+            #   images has to be a multiple of time_steps
+            #   To do that by, simply deleting some images
+            # ------  ------ #
+            samples = math.floor(training_images.shape[0] / time_steps)  #number of samples for the given number of time_steps
+            throw_away_images = training_images.shape[0] - samples*time_steps   #number of images i'll have to throw away (trunc) in order to reshape the 4d tensor in the required 5d tensor
+
+            training_images = np.delete(training_images, slice(0, throw_away_images), axis=0)  #trunc the 4d tensor
+            training_labels = np.delete(training_labels, slice(0, throw_away_images), axis=0)  #trunc the 4d tensor
+
+            samples = math.floor(testing_images.shape[0] / time_steps)  #number of samples for the given number of time_steps
+            throw_away_images = testing_images.shape[0] - samples*time_steps   #number of images i'll have to throw away (trunc) in order to reshape the 4d tensor in the required 5d tensor
+
+            testing_images = np.delete(testing_images, slice(0, throw_away_images), axis=0)  #trunc the 4d tensor
+            testing_labels = np.delete(testing_labels, slice(0, throw_away_images), axis=0)  #trunc the 4d tensor
+            # ----------------------------------------------------------------------- #
+
+            samples_train = int(training_images.shape[0] / time_steps)
+            samples_test = int(testing_images.shape[0] / time_steps)
+
+            if CNN.lower() == "none":
+                #   We rarelly will use CNN == None, but here is the code
+                training_images = np.reshape(training_images, (samples_train, time_steps, image_format[0], image_format[1], image_format[2]))
+                testing_images = np.reshape(testing_images, (samples_test, time_steps, image_format[0], image_format[1], image_format[2]))
+
+            elif Pooling.lower() == "none":
+                if CNN.lower() == "vgg16":
+                    training_images = np.reshape(training_images, (samples_train, time_steps)+CONST_VEC_NETWORK_VGG16_OUTPUTSHAPE)
+                    testing_images = np.reshape(testing_images, (samples_test, time_steps)+CONST_VEC_NETWORK_VGG16_OUTPUTSHAPE)
+                elif CNN.lower() == "resnet50":
+                    training_images = np.reshape(training_images, (samples_train, time_steps)+CONST_VEC_NETWORK_RESNET50_OUTPUTSHAPE)
+                    testing_images = np.reshape(testing_images, (samples_test, time_steps)+CONST_VEC_NETWORK_RESNET50_OUTPUTSHAPE)
+                elif CNN.lower() == "inceptionv3":
+                    training_images = np.reshape(training_images, (samples_train, time_steps)+CONST_VEC_NETWORK_INCEPTIONV3_OUTPUTSHAPE)
+                    testing_images = np.reshape(testing_images, (samples_test, time_steps)+CONST_VEC_NETWORK_INCEPTIONV3_OUTPUTSHAPE)
+            else:
+                if CNN.lower() == "vgg16":
+                    training_images = np.reshape(training_images, (samples_train, time_steps, CONST_VEC_NETWORK_VGG16_OUTPUTSHAPE[2]))
+                    testing_images = np.reshape(testing_images, (samples_test, time_steps, CONST_VEC_NETWORK_VGG16_OUTPUTSHAPE[2]))
+                elif CNN.lower() == "resnet50":
+                    training_images = np.reshape(training_images, (samples_train, time_steps, CONST_VEC_NETWORK_RESNET50_OUTPUTSHAPE[2]))
+                    testing_images = np.reshape(testing_images, (samples_test, time_steps, CONST_VEC_NETWORK_RESNET50_OUTPUTSHAPE[2]))
+                elif CNN.lower() == "inceptionv3":
+                    training_images = np.reshape(training_images, (samples_train, time_steps, CONST_VEC_NETWORK_INCEPTIONV3_OUTPUTSHAPE[2]))
+                    testing_images = np.reshape(testing_images, (samples_test, time_steps, CONST_VEC_NETWORK_INCEPTIONV3_OUTPUTSHAPE[2]))
+
+            training_labels = np.reshape(training_labels, (samples_train, time_steps))
+            testing_labels = np.reshape(testing_labels, (samples_test, time_steps))
+
+            return training_images, training_labels, testing_images, testing_labels
+        
+        else:
+            # This part of the code was base on the Tensorflow LSTM example:
+            # https://www.tensorflow.org/tutorials/structured_data/time_series
+            #
+            if causal_prediction == True:
+                target_size = 0     # If causal, we want to predict the audio volume at the last image of the batch
+            else:
+                target_size = int((time_steps-1)/2)  # If non causal, we want to predict the volume at the center of the batch
+
+
+            X_train = []
+            Y_train = []
+            X_test = []
+            Y_test = []
+
+            # ----------------------- TRAINS SET ----------------------- # 
+
+            # Window loop
+            frame_sum = 0   # This variable keeps track of what frame in training_images is being processed now
+            for i in range(len(training_nof)):  # For each video in training_images . . .
+
+                start_index = frame_sum+time_steps
+                end_index = frame_sum+training_nof[i]
+                for j in range(start_index, end_index):     # For each window in this video . . .
+                    indices = range(j-time_steps, j)
+                    
+                    if CNN.lower() == "none":
+                        X_train.append(np.reshape(training_images[indices], (time_steps, image_format[0], image_format[1], image_format[2])))
+                    elif Pooling.lower() == "none":
+                        if CNN.lower() == "vgg16":
+                            X_train.append(np.reshape(training_images[indices], (time_steps,)+CONST_VEC_NETWORK_VGG16_OUTPUTSHAPE))
+                        elif CNN.lower() == "resnet50":
+                            X_train.append(np.reshape(training_images[indices], (time_steps,)+CONST_VEC_NETWORK_RESNET50_OUTPUTSHAPE))
+                        elif CNN.lower() == "inceptionv3":
+                            X_train.append(np.reshape(training_images[indices], (time_steps,)+CONST_VEC_NETWORK_INCEPTIONV3_OUTPUTSHAPE))
+                    elif (Pooling.lower() == 'gap') or (Pooling.lower() == 'gmp'):
+                        if CNN.lower() == "vgg16":
+                            X_train.append(np.reshape(training_images[indices], (time_steps, CONST_VEC_NETWORK_VGG16_OUTPUTSHAPE[2])))
+                        elif CNN.lower() == "resnet50":
+                            X_train.append(np.reshape(training_images[indices], (time_steps, CONST_VEC_NETWORK_RESNET50_OUTPUTSHAPE[2])))
+                        elif CNN.lower() == "inceptionV3":
+                            X_train.append(np.reshape(training_images[indices], (time_steps, CONST_VEC_NETWORK_INCEPTIONV3_OUTPUTSHAPE[2])))
+                    Y_train.append(training_labels[j-target_size])
+
+                frame_sum += training_nof[i]
+            # -----------------------TEST SET ----------------------- # 
+            # Window loop
+            frame_sum = 0   # This variable keeps track of what frame in testing_images is being processed now
+            for i in range(len(testing_nof)):  # For each video in testing_images . . .
+
+                start_index = frame_sum+time_steps
+                end_index = frame_sum+testing_nof[i]
+                for j in range(start_index, end_index):     # For each window in this video . . .
+                    indices = range(j-time_steps, j)
+                    
+                    if CNN.lower() == "none":
+                        X_test.append(np.reshape(testing_images[indices], (time_steps, image_format[0], image_format[1], image_format[2])))
+                    elif Pooling.lower() == "none":
+                        if CNN.lower() == "vgg16":
+                            X_test.append(np.reshape(testing_images[indices], (time_steps,)+CONST_VEC_NETWORK_VGG16_OUTPUTSHAPE))
+                        elif CNN.lower() == "resnet50":
+                            X_test.append(np.reshape(testing_images[indices], (time_steps,)+CONST_VEC_NETWORK_RESNET50_OUTPUTSHAPE))
+                        elif CNN.lower() == "inceptionv3":
+                            X_test.append(np.reshape(testing_images[indices], (time_steps,)+CONST_VEC_NETWORK_INCEPTIONV3_OUTPUTSHAPE))
+                    elif (Pooling.lower() == 'gap') or (Pooling.lower() == 'gmp'):
+                        if CNN.lower() == "vgg16":
+                            X_test.append(np.reshape(testing_images[indices], (time_steps, CONST_VEC_NETWORK_VGG16_OUTPUTSHAPE[2])))
+                        elif CNN.lower() == "resnet50":
+                            X_test.append(np.reshape(testing_images[indices], (time_steps, CONST_VEC_NETWORK_RESNET50_OUTPUTSHAPE[2])))
+                        elif CNN.lower() == "inceptionv3":
+                            X_test.append(np.reshape(testing_images[indices], (time_steps, CONST_VEC_NETWORK_INCEPTIONV3_OUTPUTSHAPE[2])))
+                    Y_test.append(testing_labels[j-target_size])
+
+                frame_sum += testing_nof[i]
+
+
+            X_train = np.array(X_train).astype("float32")
+            Y_train = np.array(Y_train).astype("float32")
+            X_test = np.array(X_test).astype("float32")
+            Y_test = np.array(Y_test).astype("float32")
+
+            """
+            On stateful LSTM networks, you have to pass the input_size (including the batch_size)
+            to the network when declaring it (throughout the batch_input_shape argument)
+
+            Therefore, lenght of the dataset has to me a multiple of batch_size.
+            We do that by deleting sufficient data;
+            """
+
+            if stateful:
+                while X_train.shape[0] % batch_size != 0:
+                    X_train = np.delete(X_train, 1, axis=0)
+                    Y_train = np.delete(Y_train, 1, axis=0)
+
+                while X_test.shape[0] % batch_size != 0:
+                    X_test = np.delete(X_test, 1, axis=0)
+                    Y_test = np.delete(Y_test, 1, axis=0)
+
+            #   Do a manual memory free in these arrays
+
+            del testing_images
+            del training_images
+            del testing_labels
+            del training_labels
+            gc.collect()
+
+            return X_train, Y_train, X_test, Y_test
 
     def __CheckIfPathExists(self, path):
         return os.path.exists(path)
