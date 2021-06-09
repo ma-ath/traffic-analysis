@@ -103,7 +103,7 @@ class ModelHandler:
             with open(os.path.join(path,'fit_history.csv'), mode='w') as f:
                 fit_history_df.to_csv(f,sep=";", na_rep="na")
 
-    def LoadModel(self, path):
+    def LoadModelFromPath(self, path):
         """
         Method that receives a path and loads a trained model
         """

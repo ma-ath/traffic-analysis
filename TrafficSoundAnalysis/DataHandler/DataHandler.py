@@ -661,10 +661,10 @@ class DataHandler:
 
     def LoadDataset(self,
                     fold = None,
-                    CNN_offline = True,
+                    CNN_offline = False,
                     CNN="vgg16",
                     Pooling="gap",
-                    LSTM=True,
+                    LSTM=False,
                     time_steps=3,
                     overlap_windows=True,
                     causal_prediction=True,
