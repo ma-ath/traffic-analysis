@@ -28,39 +28,33 @@ dataset_dir = os.path.join(os.path.abspath(''), "dataset")
 if not os.path.isdir(os.path.join(dataset_dir, "raw")):
     raise Exception("Por favor, complete antes o tutorial para extração do dataset!")
 
-#   Cria o objecto dataHandler
-dataHandler = DataHandler(dataset_directory = dataset_dir)
-
 #   Cria o modelo a ser treinado a partir de um dicionario python
 
 from network import *
+from folds import *
 
 model = ModelHandler()
 
-model.BuildModelFromDictionary(network)
+model.LoadModelFromDictionary(network)
 
-## Geração de um modelo mobilenet para nosso projeto
-input_format = (64, 64, 3)
+model.CompileModel()
 
-# Baixa a rede mobilenet do keras.applications e congela seus pesos
-convolutional_layer = tf.keras.applications.MobileNet(weights='imagenet', include_top=False, input_shape=input_format)
-for layer in convolutional_layer.layers[:]:
-    layer.trainable = False
+model.ShowModel()
 
-# Cria um modelo do tipo sequencial
-mobile_net = tf.keras.Sequential(name='mobile_net_test')
+### Treinamento
+#   Cria o objecto dataHandler
+dataHandler = DataHandler(dataset_directory = dataset_dir, image_format = [64, 64, 3])
 
-mobile_net.add(tf.keras.layers.Input(input_format))
-mobile_net.add(convolutional_layer)
-mobile_net.add(tf.keras.layers.GlobalAveragePooling2D(data_format=None))
+[
+    x_train,
+    y_train,
+    x_val,
+    y_val
+] = dataHandler.LoadDataset(folds[0], CNN_offline=False)
 
-mobile_net.add(tf.keras.layers.Dense(128, activation='tanh'))
-mobile_net.add(tf.keras.layers.Dropout(0.2))
-mobile_net.add(tf.keras.layers.Dense(1, activation='linear'))
+print(x_train.shape)
+print(y_train.shape)
+print(x_val.shape)
+print(y_val.shape)
 
-# Summarize
-mobile_net.summary()
-
-model.BuildModelFromKeras(mobile_net)
-
-#model.ShowModel()
+model.Train(x=x_train, y=y_train, validation_data=(x_val, y_val))

@@ -13,21 +13,49 @@ import tensorflow as tf
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 from TrafficSoundAnalysis.utils.utils import *
 from TrafficSoundAnalysis.utils.consts import *
+from TrafficSoundAnalysis.DataHandler.DataHandler import *
 
 class ModelHandler:
     """
     This class is the model used for defining and training neural networks 
     """
     #   Keras model inside this Model Class
+
     model = None
+    model_name = ""
+    model_dict = None
 
     def __init__(self):
         pass
 
-    def Train(self, optimizer = tf.keras.optimizers.Adam, loss = tf.keras.losses.mean_squared_error, batchsize = 32, epochs = 20, callbacks = None):
+    def Train(self, x=None, y=None, validation_data=None, batchsize = 32, epochs = 20, callbacks = None):
         """
         Method that receives an image capture, a model and estimates the sound pressure information
         """
+        # Check if user is passing a datahandler object
+        if x is None or y is None:
+            raise Exception("You must pass the training data to the ModelHandler.Train method")
+        
+        # If model was generated from a dictionary, print its dictionary
+        if self.model_dict is not None:
+            print_info("Model was defined in the following dictionary:")
+            for key, value in self.model_dict.items():
+                print('\t'+key, '=', value)
+
+        # summarize the model 
+        print_info("Model \'"+self.model_name+"\' summary:")
+        self.model.summary()
+
+        # Fit the model
+        fit_history = self.model.fit(
+            x,
+            y,
+            batch_size=batchsize,
+            epochs=epochs,
+            verbose=2,
+            validation_data=validation_data,
+            callbacks=callbacks)
+
         pass
 
     def Evaluate():
@@ -48,13 +76,28 @@ class ModelHandler:
         """
         pass
 
-    def BuildModelFromDictionary(self, network):
+    def CompileModel(self, optimizer = tf.keras.optimizers.Adam(), loss = tf.keras.losses.mean_squared_error, metrics=None, loss_weights=None, weighted_metrics=None, run_eagerly=None, steps_per_execution=None):
+        """
+        Method that runs the model.compile method from the keras model
+        """
+        self.model.compile(
+            optimizer=optimizer,
+            loss=loss,
+            metrics=metrics,
+            loss_weights=loss_weights,
+            weighted_metrics=weighted_metrics,
+            run_eagerly=run_eagerly,
+            steps_per_execution=steps_per_execution)
+
+    def LoadModelFromDictionary(self, network):
         """
         Function that loads the desired model from a python dictionary
         Updates the model.model paramether, and also returns the builded model
         """
 
         model = tf.keras.Model()
+        self.model_name = network['model_name']
+        self.model_dict = network
 
         try:
             #   Checks if the network should include the cnn layers or not (offline or online training)
@@ -180,7 +223,7 @@ class ModelHandler:
             print_error('An error has occurred')
             print_error(str(e))
     
-    def BuildModelFromKeras(self, model):
+    def LoadModelFromKeras(self, model, model_name):
         """
         Method that simply updates the self.model paramether with an externally defined model
         """
@@ -189,6 +232,7 @@ class ModelHandler:
         if type(model) != type(valid_model) and type(model) != type(valid_sequential):
             raise Exception("You must pass a valid keras.Model or keras.Sequential model")
         self.model = model
+        self.model_name = model_name
     
     def ShowModel(self, to_file='model.png', show_shapes=True, show_dtype=True, show_layer_names=True, expand_nested=True):
         if self.model is not None:
@@ -203,4 +247,9 @@ class ModelHandler:
         else:
             print_error('You must build a model before attempting to show it')
         pass
-    pass
+    
+    def __CheckIfPathExists(self, path):
+        return os.path.exists(path)
+    
+    def __CreateFolder(self, path):
+        os.makedirs(path)

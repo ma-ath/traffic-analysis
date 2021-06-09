@@ -30,15 +30,15 @@ class DataHandler:
     """
 
     __dataset_directory = ""
-    __image_format = [224,224,3]
+    __image_format = None
 
-    def __init__(self, dataset_directory = CONST_STR_DATASET_BASEPATH):
+    def __init__(self, dataset_directory = CONST_STR_DATASET_BASEPATH, image_format = [224, 224, 3]):
         if type(dataset_directory) != str:
             print_error("DataHandler constructor expects a string as argument, not "+str(type(dataset_directory)))
             raise TypeError("DataHandler constructor expects a string as argument, not "+str(type(dataset_directory)))
 
         self.__dataset_directory = dataset_directory
-        #self.scraper = DataScraper(dataset_directory)
+        self.__image_format = image_format
 
         if not self.__CheckIfPathExists(dataset_directory):
             print_error("Cound not find the dataset base folder: "+str(dataset_directory))
@@ -46,7 +46,6 @@ class DataHandler:
         if not self.__CheckIfPathExists(os.path.join(dataset_directory, CONST_STR_DATASET_BASEPATH_RAW)):
             print_error("Cound not find the dataset raw folder: "+os.path.join(dataset_directory, CONST_STR_DATASET_BASEPATH_RAW))
             raise Exception("Cound not find the dataset raw folder")
-        pass
 
     def ExtractDataFromRawVideos(self, downsampling_factor, image_format, video = None, dont_extract_soundtargets = False):
         """
@@ -279,7 +278,7 @@ class DataHandler:
 
         pass
 
-    def CreateFoldFromExtractedData(self, train_videos, test_videos):
+    def __CreateFoldFromExtractedData(self, train_videos, test_videos):
         """
         Function that returns the input and output data of stacked videos (a fold).
         ---------------------------
@@ -533,7 +532,7 @@ class DataHandler:
                 output_test_data,
                 train_number_of_frames,
                 test_number_of_frames
-            ] = self.CreateFoldFromExtractedData(fold["training_videos"], fold["testing_videos"])
+            ] = self.__CreateFoldFromExtractedData(fold["training_videos"], fold["testing_videos"])
 
             #   Save this dataset to the corresponding fold path
             print_info("Saving fold "+str(fold['number'])+" to disk")
@@ -660,21 +659,22 @@ class DataHandler:
             gc.collect()
         pass
 
-    def LoadDatasetFromFoldOnDisk(self,
-                                Fold_name,
-                                CNN="vgg16",
-                                Pooling="gap",
-                                LSTM=True,
-                                time_steps=3,
-                                overlap_windows=True,
-                                causal_prediction=True,
-                                stateful=False,
-                                batch_size=32,
-                                image_format = __image_format):
+    def LoadDataset(self,
+                    fold = None,
+                    CNN_offline = True,
+                    CNN="vgg16",
+                    Pooling="gap",
+                    LSTM=True,
+                    time_steps=3,
+                    overlap_windows=True,
+                    causal_prediction=True,
+                    stateful=False,
+                    batch_size=32,
+                    image_format = None):
         """
         Function that loads a fold dataset from disk for the training process, using any struture
 
-        Fold_name:          From which fold should the function load the dataset
+        fold:               A python dictionary specifying from which fold should the function load the dataset. 
         CNN, Pooling:       Which features should the function use to create the dataset
         LSTM:               If the dataset loaded is being used in a lstm network
         time_steps:         How many frame inputs are there in one window of the LSTM
@@ -683,62 +683,75 @@ class DataHandler:
         stateful:           In case of a LSTM stateful network, dataset size has to be a multiple of batch_size. We do that by deleting some information
         batch_size:         Batch size used on fitting process
         """
-
-        self.__image_format = image_format
-
-        #   Check if the desired image features have been previously extracted or not. Try loading the processed dataset from file:
-        #   Sets the dataset_datapath variable for the root of the desired data location
-        if (CNN.lower() == "vgg16"):
-            dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_VGG16)
-        elif (CNN.lower() == "inceptionv3"):
-            dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_INCEPTIONV3)
-        elif (CNN.lower() == "resnet50"):
-            dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_RESNET50)
-        elif (CNN.lower() == "none"):
-            print_warning("You are loading a non-pre-extracted dataset. Usually this leads to a high usage of RAM memory.")
-            dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS)
+        if image_format is not None:
+            self.__image_format = image_format
         else:
-            print_error("The desired CNN model is still not suported for dataset loading")
-            raise Exception("The desired CNN model is still not suported for dataset loading")
+            image_format = self.__image_format
+        if CNN_offline:
+            print_info("Loading CNN extracted features from fold "+fold['name'])
+            #   Check if the desired image features have been previously extracted or not. Try loading the processed dataset from file:
+            #   Sets the dataset_datapath variable for the root of the desired data location
+            if (CNN.lower() == "vgg16"):
+                dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_VGG16)
+            elif (CNN.lower() == "inceptionv3"):
+                dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_INCEPTIONV3)
+            elif (CNN.lower() == "resnet50"):
+                dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, CONST_STR_DATASET_BASEPATH_FOLDS_RESNET50)
+            elif (CNN.lower() == "none"):
+                print_warning("You are loading a non-pre-extracted dataset. Usually this leads to a high usage of RAM memory.")
+                dataset_datapath = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS)
+            else:
+                print_error("The desired CNN model is still not suported for dataset loading")
+                raise Exception("The desired CNN model is still not suported for dataset loading")
 
-        #   Try loading the fold dataset (features or full images tensors)
-        if not (CNN.lower() == "none"):
-            #   Loads only the image features
-            training_images_filename = os.path.join(dataset_datapath, Fold_name.lower()+"_train_input_data_"+Pooling.lower()+".npy")
-            testing_images_filename = os.path.join(dataset_datapath, Fold_name.lower()+"_test_input_data_"+Pooling.lower()+".npy")
-            training_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_train_output_data.npy")
-            testing_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_test_output_data.npy")
+            #   Try loading the fold dataset (features or full images tensors)
+            if not (CNN.lower() == "none"):
+                #   Loads only the image features
+                training_images_filename = os.path.join(dataset_datapath, fold['name'].lower()+"_train_input_data_"+Pooling.lower()+".npy")
+                testing_images_filename = os.path.join(dataset_datapath, fold['name'].lower()+"_test_input_data_"+Pooling.lower()+".npy")
+                training_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, fold['name'].lower()+"_train_output_data.npy")
+                testing_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, fold['name'].lower()+"_test_output_data.npy")
+            else:
+                #   Loads the full image tensors
+                training_images_filename = os.path.join(dataset_datapath,fold['name'].lower()+"_train_input_data.npy")
+                testing_images_filename = os.path.join(dataset_datapath,fold['name'].lower()+"_test_input_data.npy")
+                training_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, fold['name'].lower()+"_train_output_data.npy")
+                testing_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, fold['name'].lower()+"_test_output_data.npy")
+
+            number_of_frames_train_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, fold['name'].lower()+"_train_numberofframes.npy")
+            number_of_frames_test_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, fold['name'].lower()+"_test_numberofframes.npy")
+
+            try:
+                training_images = np.load(training_images_filename)
+                testing_images = np.load(testing_images_filename)
+                training_labels = np.load(training_labels_filename)
+                testing_labels = np.load(testing_labels_filename)
+            except:
+                print_error("Could not find one or more of the following fold files. Did you create the fold / extracted the tensor features?")
+                print("\t"+training_images_filename)
+                print("\t"+testing_images_filename)
+                print("\t"+training_labels_filename)
+                print("\t"+testing_labels_filename)
+                raise Exception("Could not find one or more of the following fold files. Did you create the fold / extracted the tensor features?")
+
+            try:
+                training_nof = np.load(number_of_frames_train_filename)
+                testing_nof = np.load(number_of_frames_test_filename)
+            except:
+                print_error("Could not open one or more of the following files:")
+                print("\t"+number_of_frames_train_filename)
+                print("\t"+number_of_frames_test_filename)
+                Exception("Error when trying to load the number_of_frames files")
         else:
-            #   Loads the full image tensors
-            training_images_filename = os.path.join(dataset_datapath,Fold_name.lower()+"_train_input_data.npy")
-            testing_images_filename = os.path.join(dataset_datapath,Fold_name.lower()+"_test_input_data.npy")
-            training_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_train_output_data.npy")
-            testing_labels_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_test_output_data.npy")
-
-        number_of_frames_train_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_train_numberofframes.npy")
-        number_of_frames_test_filename = os.path.join(self.__dataset_directory, CONST_STR_DATASET_BASEPATH_FOLDS, Fold_name.lower()+"_test_numberofframes.npy")
-
-        try:
-            training_images = np.load(training_images_filename)
-            testing_images = np.load(testing_images_filename)
-            training_labels = np.load(training_labels_filename)
-            testing_labels = np.load(testing_labels_filename)
-        except:
-            print_error("Could not find one or more of the following fold files. Did you create the fold / extracted the tensor features?")
-            print("\t"+training_images_filename)
-            print("\t"+testing_images_filename)
-            print("\t"+training_labels_filename)
-            print("\t"+testing_labels_filename)
-            raise Exception("Could not find one or more of the following fold files. Did you create the fold / extracted the tensor features?")
-
-        try:
-            training_nof = np.load(number_of_frames_train_filename)
-            testing_nof = np.load(number_of_frames_test_filename)
-        except:
-            print_error("Could not open one or more of the following files:")
-            print("\t"+number_of_frames_train_filename)
-            print("\t"+number_of_frames_test_filename)
-            Exception("Error when trying to load the number_of_frames files")
+            print_info("Loading non-extracted data from fold "+fold['name'])
+            [
+                training_images,
+                training_labels,
+                testing_images,
+                testing_labels,
+                training_nof,
+                testing_nof
+            ] = self.__CreateFoldFromExtractedData(fold['training_videos'], fold['testing_videos'])
 
         #   If not using a LSTM network, loading dataset from file is all we need to do
         if not LSTM:
@@ -768,7 +781,7 @@ class DataHandler:
             samples_train = int(training_images.shape[0] / time_steps)
             samples_test = int(testing_images.shape[0] / time_steps)
 
-            if CNN.lower() == "none":
+            if CNN.lower() == "none" or CNN_offline is not True:
                 #   We rarelly will use CNN == None, but here is the code
                 training_images = np.reshape(training_images, (samples_train, time_steps, image_format[0], image_format[1], image_format[2]))
                 testing_images = np.reshape(testing_images, (samples_test, time_steps, image_format[0], image_format[1], image_format[2]))
@@ -819,13 +832,12 @@ class DataHandler:
             # Window loop
             frame_sum = 0   # This variable keeps track of what frame in training_images is being processed now
             for i in range(len(training_nof)):  # For each video in training_images . . .
-
                 start_index = frame_sum+time_steps
                 end_index = frame_sum+training_nof[i]
                 for j in range(start_index, end_index):     # For each window in this video . . .
                     indices = range(j-time_steps, j)
                     
-                    if CNN.lower() == "none":
+                    if CNN.lower() == "none" or CNN_offline is not True:
                         X_train.append(np.reshape(training_images[indices], (time_steps, image_format[0], image_format[1], image_format[2])))
                     elif Pooling.lower() == "none":
                         if CNN.lower() == "vgg16":
@@ -854,7 +866,7 @@ class DataHandler:
                 for j in range(start_index, end_index):     # For each window in this video . . .
                     indices = range(j-time_steps, j)
                     
-                    if CNN.lower() == "none":
+                    if CNN.lower() == "none" or CNN_offline is not True:
                         X_test.append(np.reshape(testing_images[indices], (time_steps, image_format[0], image_format[1], image_format[2])))
                     elif Pooling.lower() == "none":
                         if CNN.lower() == "vgg16":

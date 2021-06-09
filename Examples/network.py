@@ -8,14 +8,14 @@ network['input_format'] = [64, 64, 3]
 #   Convolutional layer
 network['cnn'] = 'vgg16' #or inceptionv3, or resnet50
 network['cnn_offline'] = False
-network['cnn_freeze_imagenet_weights'] = True
+network['cnn_freeze_imagenet_weights'] = False
 
 #   Pooling layer
 network['pooling'] = 'gap'  #or 'none', or 'gmp'
 
 #   RNN Layer
 network['rnn'] = 'lstm' #   or 'lstm'
-network['rnn_timesteps'] = 10
+network['rnn_timesteps'] = 3
 network['rnn_outputsize'] = 64
 network['rnn_dropout'] = 0.2
 network['rnn_isstateful'] = False
