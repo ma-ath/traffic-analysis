@@ -14,10 +14,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
 from TrafficSoundAnalysis.utils.utils import *
 from TrafficSoundAnalysis.utils.consts import *
 
-class Model:
+class ModelHandler:
     """
     This class is the model used for defining and training neural networks 
     """
+    #   Keras model inside this Model Class
+    model = None
+
     def __init__(self):
         pass
 
@@ -123,15 +126,18 @@ class Model:
                     layer_hiddenfc_dropout = tf.keras.layers.Dropout(network['hiddenfc_dropout'])(layer_hiddenfc)
                     #   Output layer
                     layer_output = tf.keras.layers.Dense(1, activation='linear')(layer_hiddenfc_dropout)
-
+                
+                #   Here, we have a sucessefuly created a network, with input and output
+                #   We just need to define the model
+                model = tf.keras.models.Model(inputs=layer_input, outputs=layer_output)
+                self.model = model
+                return model
             elif network['rnn'].lower() == 'lstm':
                 # Change the input format to (timesteps, input_format)
                 if type(input_format) is int:
                     new_input_format = (network['rnn_timesteps'], input_format)
                 else:
                     new_input_format = (network['rnn_timesteps'],)+input_format
-
-                print('new_input_format', new_input_format)
 
                 # Creates a new, TimeDistributed model of the CNN. Adds the adequate input layer to this model
                 model = tf.keras.Sequential()
@@ -168,11 +174,7 @@ class Model:
                 return model
             else:
                 raise Exception('Non supported RNN Model: '+str(network('rnn')))
-            #   Here, we have a sucessefuly created a network, with input and output
-            #   We just need to define the model
-            model = tf.keras.models.Model(inputs=layer_input, outputs=layer_output)
-            self.model = model
-            return model
+
 
         except Exception as e:
             print_error('An error has occurred')
@@ -182,7 +184,23 @@ class Model:
         """
         Method that simply updates the self.model paramether with an externally defined model
         """
-        if type(model) is not tf.keras.Model or tf.keras.Sequential:
+        valid_model = tf.keras.Model()
+        valid_sequential =tf.keras.Sequential()
+        if type(model) != type(valid_model) and type(model) != type(valid_sequential):
             raise Exception("You must pass a valid keras.Model or keras.Sequential model")
         self.model = model
+    
+    def ShowModel(self, to_file='model.png', show_shapes=True, show_dtype=True, show_layer_names=True, expand_nested=True):
+        if self.model is not None:
+            tf.keras.utils.plot_model(
+                self.model,
+                to_file=to_file,
+                show_shapes=show_shapes,
+                show_dtype=show_dtype,
+                show_layer_names=show_layer_names,
+                expand_nested=expand_nested
+            )
+        else:
+            print_error('You must build a model before attempting to show it')
+        pass
     pass

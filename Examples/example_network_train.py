@@ -6,7 +6,7 @@ sys.path.append(os.path.dirname(os.path.abspath('')))
 
 # Importa a classe DataHandler da nossa biblioteca de trafego
 from TrafficSoundAnalysis.DataHandler.DataHandler import *
-from TrafficSoundAnalysis.Model.Model import *
+from TrafficSoundAnalysis.ModelHandler.ModelHandler import *
 
 # Isso aqui é para resolve um problema de 'Out Of Memory' na minha gpu (GTX 1650)
 # https://stackoverflow.com/questions/59873568/unknownerror-failed-to-get-convolution-algorithm
@@ -35,17 +35,32 @@ dataHandler = DataHandler(dataset_directory = dataset_dir)
 
 from network import *
 
-model = Model()
+model = ModelHandler()
 
 model.BuildModelFromDictionary(network)
 
-tf.keras.utils.plot_model(
-    model.model,
-    show_shapes=True,
-    show_dtype=True,
-    show_layer_names=True,
-    rankdir="TB",
-    expand_nested=False,
-    dpi=96,
-)
+## Geração de um modelo mobilenet para nosso projeto
+input_format = (64, 64, 3)
 
+# Baixa a rede mobilenet do keras.applications e congela seus pesos
+convolutional_layer = tf.keras.applications.MobileNet(weights='imagenet', include_top=False, input_shape=input_format)
+for layer in convolutional_layer.layers[:]:
+    layer.trainable = False
+
+# Cria um modelo do tipo sequencial
+mobile_net = tf.keras.Sequential(name='mobile_net_test')
+
+mobile_net.add(tf.keras.layers.Input(input_format))
+mobile_net.add(convolutional_layer)
+mobile_net.add(tf.keras.layers.GlobalAveragePooling2D(data_format=None))
+
+mobile_net.add(tf.keras.layers.Dense(128, activation='tanh'))
+mobile_net.add(tf.keras.layers.Dropout(0.2))
+mobile_net.add(tf.keras.layers.Dense(1, activation='linear'))
+
+# Summarize
+mobile_net.summary()
+
+model.BuildModelFromKeras(mobile_net)
+
+#model.ShowModel()
