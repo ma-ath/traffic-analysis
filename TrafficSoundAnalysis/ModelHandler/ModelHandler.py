@@ -9,6 +9,9 @@ Created on June 1, 2021
 
 import os, sys
 import tensorflow as tf
+import pandas
+import time
+
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 from TrafficSoundAnalysis.utils.utils import *
@@ -46,6 +49,7 @@ class ModelHandler:
         print_info("Model \'"+self.model_name+"\' summary:")
         self.model.summary()
 
+        start_time = time.time()
         # Fit the model
         fit_history = self.model.fit(
             x,
@@ -56,7 +60,10 @@ class ModelHandler:
             validation_data=validation_data,
             callbacks=callbacks)
 
-        pass
+        print_info("Model took {:.2f}".format(time.time() - start_time)+" seconds to train on")
+        print_info("Average time per epoch: {:.2f}".format((time.time() - start_time)/epochs)+" seconds")
+
+        return fit_history
 
     def Evaluate():
         """
@@ -64,17 +71,44 @@ class ModelHandler:
         """
         pass
 
-    def Save():
+    def SaveModel(self, path, fit_history=None, overidefiles=False):
         """
         Method that receives an image capture, a model and estimates the sound pressure information
         """
-        pass
+        #   Create folder
+        if not self.__CheckIfPathExists(path):
+            self.__CreateFolder(path)
+        
+        json_string = self.model.to_json()
 
-    def Load():
+        if (self.__CheckIfFileExists(os.path.join(path, 'architecture.json')) or self.__CheckIfFileExists(os.path.join(path, 'model_weights.json'))) and not overidefiles:
+            #   These files already exists: Overide?
+            print_warning("The files architecture.json and/or model_weights.h5 already exists in this directory. Overide these files?")
+            
+            ans = input("\'y\' or \'n\': ")
+            while not (ans.lower() == 'y' or ans.lower() == 'n'):
+                ans = input("\'y\' or \'n\': ")
+
+            if ans.lower() == 'n':
+                print_warning("No changes made to disk")
+                return
+
+        print_info("Saving model information to disk")       
+        
+        open(os.path.join(path, 'architecture.json'), 'w').write(json_string)
+        self.model.save_weights(os.path.join(path, 'model_weights.h5'), overwrite=True)
+        
+        if fit_history is not None:
+            fit_history_df = pandas.DataFrame(fit_history.history)
+            with open(os.path.join(path,'fit_history.csv'), mode='w') as f:
+                fit_history_df.to_csv(f,sep=";", na_rep="na")
+
+    def LoadModel(self, path):
         """
-        Method that receives an image capture, a model and estimates the sound pressure information
+        Method that receives a path and loads a trained model
         """
-        pass
+        self.model = tf.keras.models.model_from_json(open(os.path.join(path, 'architecture.json')).read())
+        self.model.load_weights(os.path.join(path, 'model_weights.h5'))
 
     def CompileModel(self, optimizer = tf.keras.optimizers.Adam(), loss = tf.keras.losses.mean_squared_error, metrics=None, loss_weights=None, weighted_metrics=None, run_eagerly=None, steps_per_execution=None):
         """
@@ -253,3 +287,6 @@ class ModelHandler:
     
     def __CreateFolder(self, path):
         os.makedirs(path)
+    
+    def __CheckIfFileExists(self,path):
+        return os.path.isfile(path)

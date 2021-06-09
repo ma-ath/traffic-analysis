@@ -50,11 +50,13 @@ dataHandler = DataHandler(dataset_directory = dataset_dir, image_format = [64, 6
     y_train,
     x_val,
     y_val
-] = dataHandler.LoadDataset(folds[0], CNN_offline=False)
+] = dataHandler.LoadDataset(folds[0], CNN_offline=True)
 
 print(x_train.shape)
 print(y_train.shape)
 print(x_val.shape)
 print(y_val.shape)
 
-model.Train(x=x_train, y=y_train, validation_data=(x_val, y_val))
+fit_history = model.Train(x=x_train, y=y_train, validation_data=(x_val, y_val), epochs=5)
+
+model.SaveModel('.', fit_history=fit_history)

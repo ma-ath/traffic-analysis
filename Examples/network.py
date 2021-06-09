@@ -7,7 +7,7 @@ network['input_format'] = [64, 64, 3]
 
 #   Convolutional layer
 network['cnn'] = 'vgg16' #or inceptionv3, or resnet50
-network['cnn_offline'] = False
+network['cnn_offline'] = True
 network['cnn_freeze_imagenet_weights'] = False
 
 #   Pooling layer
