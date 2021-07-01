@@ -131,3 +131,6 @@ dmypy.json
 #   Project specific files:
 Examples/dataset
 .vscode
+*.h5
+*.csv
+*.json
